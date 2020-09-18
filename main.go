@@ -93,7 +93,7 @@ func buildDumpCommand(dbConfig db, fileName string) string {
 	return cmd
 }
 
-func buildRestoreCommand(dbConfig db, fileName string) string {
+func buildRestoreCommand(dbConfig db, database, fileName string) string {
 	// options := "--no-privileges --no-owner --blobs --format=custom --verbose"
 	options := "-x -O -c --if-exists "
 	cmd := fmt.Sprintf(
@@ -102,7 +102,7 @@ func buildRestoreCommand(dbConfig db, fileName string) string {
 		dbConfig.Host,
 		dbConfig.Port,
 		dbConfig.Username,
-		dbConfig.Database,
+		database,
 		options,
 		fileName,
 	)
@@ -161,6 +161,27 @@ func checkingConfig(config *Config) {
 	runLocalCmd(localDBExistsCmd)
 }
 
+func runPSQLCmd(dbConfig db, database, cmd string) {
+	psqlCmd := fmt.Sprintf(
+		"PGPASSWORD=%s psql -h %s -p %d -U %s -d %s",
+		dbConfig.Password,
+		dbConfig.Host,
+		dbConfig.Port,
+		dbConfig.Username,
+		database,
+	)
+
+	runCmd := fmt.Sprintf("%s -c \"%s\"", psqlCmd, cmd)
+	runLocalCmd(runCmd)
+}
+
+func printStep(step int, s string, args ...interface{}) int {
+	step++
+	s = fmt.Sprintf(s, args...)
+	fmt.Printf("%d. %s\n", step, s)
+	return step
+}
+
 func main() {
 	var configFile string
 	flag.StringVar(&configFile, "f", "config.yml", "env mode")
@@ -168,12 +189,11 @@ func main() {
 	fmt.Println("-> Config file: ", configFile)
 
 	config := readConfig(configFile)
-	step := 1
-	fmt.Printf("%d. Checking config...\n", step)
+	step := 0
+	step = printStep(step, "Checking config...")
 	checkingConfig(config)
 
-	step++
-	fmt.Printf("%d. SSH to %s\n", step, config.Server.Host)
+	step = printStep(step, "SSH to %s", config.Server.Host)
 	client := Dial(config.Server)
 	defer client.Close()
 
@@ -181,26 +201,61 @@ func main() {
 	dumpFile := fmt.Sprintf("/tmp/%s_%s.dump", config.Server.DB.Database, suffix)
 
 	dumpCmd := buildDumpCommand(config.Server.DB, dumpFile)
-	step++
-	fmt.Printf("%d. Dumping database %s in %s\n", step, config.Server.DB.Database, config.Server.Host)
+	step = printStep(step, "Dumping database %s in %s", config.Server.DB.Database, config.Server.Host)
 	runRemoteCmd(client, dumpCmd)
 	defer func() {
-		step++
-		fmt.Printf("%d. Remove temp dump file %s in %s\n", step, dumpFile, config.Server.Host)
+		step = printStep(step, "Remove temp dump file %s in %s", dumpFile, config.Server.Host)
 		runRemoteCmd(client, fmt.Sprintf("rm -f %s", dumpFile))
 	}()
 
-	step++
-	fmt.Printf("%d. Copy dump file %s to local\n", step, dumpFile)
+	step = printStep(step, "Copy dump file %s to local", dumpFile)
 	copiedDumpFile := copyDumpFile(config.Server, dumpFile)
 	defer func() {
 		step++
-		fmt.Printf("%d. Remove local temp copied file %s\n", step, copiedDumpFile)
+		step = printStep(step, "Remove local temp copied file %s", copiedDumpFile)
 		runLocalCmd(fmt.Sprintf("rm -f %s", copiedDumpFile))
 	}()
 
-	step++
-	fmt.Printf("%d. Restoring %s to databae %s\n", step, copiedDumpFile, config.LocalDB.Database)
-	restoreCmd := buildRestoreCommand(config.LocalDB, copiedDumpFile)
+	intermediateDB := fmt.Sprintf("tmp_%s", suffix)
+	step = printStep(step, "Create local intermediate database %s", intermediateDB)
+	runPSQLCmd(
+		config.LocalDB,
+		config.LocalDB.Database,
+		fmt.Sprintf("CREATE DATABASE %s", intermediateDB),
+	)
+
+	restoredDB := fmt.Sprintf("restored_%s", suffix)
+	step = printStep(step, "Create local restored database %s", restoredDB)
+	runPSQLCmd(
+		config.LocalDB,
+		intermediateDB,
+		fmt.Sprintf("CREATE DATABASE %s", restoredDB),
+	)
+
+	step = printStep(step, "Restoring %s to databae %s", copiedDumpFile, restoredDB)
+	restoreCmd := buildRestoreCommand(config.LocalDB, restoredDB, copiedDumpFile)
 	runLocalCmd(restoreCmd)
+
+	step = printStep(step, "Drop local database %s", config.LocalDB.Database)
+	runPSQLCmd(
+		config.LocalDB,
+		intermediateDB,
+		fmt.Sprintf("DROP DATABASE %s", config.LocalDB.Database),
+	)
+
+	step++
+	step = printStep(step, "Rename database %s to %s", restoredDB, config.LocalDB.Database)
+	runPSQLCmd(
+		config.LocalDB,
+		intermediateDB,
+		fmt.Sprintf("ALTER DATABASE %s RENAME TO %s", restoredDB, config.LocalDB.Database),
+	)
+
+	step++
+	step = printStep(step, "Drop local database %s", intermediateDB)
+	runPSQLCmd(
+		config.LocalDB,
+		config.LocalDB.Database,
+		fmt.Sprintf("DROP DATABASE %s", intermediateDB),
+	)
 }
