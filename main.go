@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -116,14 +117,20 @@ func runRemoteCmd(client *ssh.Client, cmd string) {
 	}
 	defer session.Close()
 
+	var stderr bytes.Buffer
+	session.Stderr = &stderr
 	if err := session.Run(cmd); err != nil {
+		fmt.Println(stderr.String())
 		panic(err)
 	}
 }
 
 func runLocalCmd(runCmd string) {
 	cmd := exec.Command("bash", "-c", runCmd)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		fmt.Println(stderr.String())
 		panic(err)
 	}
 }
