@@ -149,6 +149,18 @@ func copyDumpFile(serverConfig server, dumpFileName string) string {
 	return copiedFile
 }
 
+func checkingConfig(config *Config) {
+	localDBExistsCmd := fmt.Sprintf(
+		"PGPASSWORD=%s psql -h %s -p %d -U %s -d %s -c \"SELECT 1\"",
+		config.LocalDB.Password,
+		config.LocalDB.Host,
+		config.LocalDB.Port,
+		config.LocalDB.Username,
+		config.LocalDB.Database,
+	)
+	runLocalCmd(localDBExistsCmd)
+}
+
 func main() {
 	var configFile string
 	flag.StringVar(&configFile, "f", "config.yml", "env mode")
@@ -156,7 +168,12 @@ func main() {
 	fmt.Println("-> Config file: ", configFile)
 
 	config := readConfig(configFile)
-	fmt.Println(fmt.Sprintf("1. SSH to %s", config.Server.Host))
+	step := 1
+	fmt.Printf("%d. Checking config...\n", step)
+	checkingConfig(config)
+
+	step++
+	fmt.Printf("%d. SSH to %s\n", step, config.Server.Host)
 	client := Dial(config.Server)
 	defer client.Close()
 
@@ -164,21 +181,26 @@ func main() {
 	dumpFile := fmt.Sprintf("/tmp/%s_%s.dump", config.Server.DB.Database, suffix)
 
 	dumpCmd := buildDumpCommand(config.Server.DB, dumpFile)
-	fmt.Println(fmt.Sprintf("2. Dumping database %s in %s", config.Server.DB.Database, config.Server.Host))
+	step++
+	fmt.Printf("%d. Dumping database %s in %s\n", step, config.Server.DB.Database, config.Server.Host)
 	runRemoteCmd(client, dumpCmd)
 	defer func() {
-		fmt.Println(fmt.Sprintf("* Remove temp dump file %s in %s", dumpFile, config.Server.Host))
+		step++
+		fmt.Printf("%d. Remove temp dump file %s in %s\n", step, dumpFile, config.Server.Host)
 		runRemoteCmd(client, fmt.Sprintf("rm -f %s", dumpFile))
 	}()
 
-	fmt.Println(fmt.Sprintf("3. Copy dump file %s to local", dumpFile))
+	step++
+	fmt.Printf("%d. Copy dump file %s to local\n", step, dumpFile)
 	copiedDumpFile := copyDumpFile(config.Server, dumpFile)
 	defer func() {
-		fmt.Println(fmt.Sprintf("* Remove local temp copied file %s", copiedDumpFile))
+		step++
+		fmt.Printf("%d. Remove local temp copied file %s\n", step, copiedDumpFile)
 		runLocalCmd(fmt.Sprintf("rm -f %s", copiedDumpFile))
 	}()
 
-	fmt.Println(fmt.Sprintf("4. Restoring %s to databae %s", copiedDumpFile, config.LocalDB.Database))
+	step++
+	fmt.Printf("%d. Restoring %s to databae %s\n", step, copiedDumpFile, config.LocalDB.Database)
 	restoreCmd := buildRestoreCommand(config.LocalDB, copiedDumpFile)
 	runLocalCmd(restoreCmd)
 }
