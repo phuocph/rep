@@ -1,0 +1,19 @@
+server:
+  host: host
+  port: 22
+  user: user
+  private_key_file: xxx
+  db:
+    host: host
+    port: 5432
+    database: database name
+    username: database user
+    password: database password
+
+local_db:
+  host: host
+  port: 5432
+  database: database name
+  username: database user
+  password: database password
+
