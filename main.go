@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -34,14 +33,32 @@ type Config struct {
 	LocalDB db     `yaml:"local_db"`
 }
 
-func readConfig(configFile string) *Config {
-	raw, err := ioutil.ReadFile(configFile)
-	if err != nil {
-		panic(err)
-	}
+var stringConfig = `
+server:
+  host: xxx
+  port: xxx
+  user: xxx
+  private_key_file: xxx
+  db:
+    host: xxx
+    port: xxx
+    database: xxx
+    username: xxx
+    password: xxx
 
+local_db:
+  host: xxx
+  port: xxx
+  database: xxx
+  username: xxx
+  password: xxx
+
+`
+
+func readConfigFromString(s string) *Config {
 	config := &Config{}
-	err = yaml.Unmarshal(raw, &config)
+	fmt.Println(s)
+	err := yaml.Unmarshal([]byte(s), &config)
 	if err != nil {
 		panic(err)
 	}
@@ -183,12 +200,7 @@ func printStep(step int, s string, args ...interface{}) int {
 }
 
 func main() {
-	var configFile string
-	flag.StringVar(&configFile, "f", "config.yml", "env mode")
-	flag.Parse()
-	fmt.Println("-> Config file: ", configFile)
-
-	config := readConfig(configFile)
+	config := readConfigFromString(stringConfig)
 	step := 0
 	step = printStep(step, "Checking config...")
 	checkingConfig(config)
